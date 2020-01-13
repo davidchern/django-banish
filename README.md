@@ -18,8 +18,8 @@ django-banish was previously called django-ipban and hosted on google-code. That
 
 Requirements:
 
-* Python 2.5+
-* Django
+* Python 3.x
+* Django 2.x
 * Memcache / Redis (with django_redis)
 
 ## Get django-banish 
