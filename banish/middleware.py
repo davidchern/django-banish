@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time, logging
+import logging
 from django.conf import settings
 from django.http import HttpResponseForbidden
 from django.core.exceptions import MiddlewareNotUsed
 from django.core.cache import cache
-from user_agents import parse
 
 from banish.models import Banishment
 
