@@ -61,9 +61,9 @@ class BanishMiddleware(object):
             if access.kind == 'ip-address':
                 cache_key = self.BANISH_PREFIX + access.condition
                 cache.set(cache_key, 1, 3600 * access.count)
-            if access.kind == 'user-agent':
+            elif access.kind == 'user-agent':
                 self.BANNED_AGENTS.append(access.condition)
-            if access.kind == 'ip-address-whitelist':
+            elif access.kind == 'ip-address-whitelist':
                 cache_key = self.WHITELIST_PREFIX + access.condition
                 cache.set(cache_key, 1, 3600 * 12)
 
