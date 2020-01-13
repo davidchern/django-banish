@@ -12,20 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import sys
-
-import django
+import time, logging
 from django.conf import settings
 from django.http import HttpResponseForbidden
 from django.core.exceptions import MiddlewareNotUsed
 from django.core.cache import cache
+from user_agents import parse
 
-from models import Banishment, Whitelist
+from banish.models import Banishment
 
 
 class BanishMiddleware(object):
-    def __init__(self):
+    def __init__(self, get_response):
         """
         Middleware init is called once per server on startup - do the heavy
         lifting here.
@@ -33,113 +31,97 @@ class BanishMiddleware(object):
         # If disabled or not enabled raise MiddleWareNotUsed so django
         # processes next middleware.
         self.ENABLED = getattr(settings, 'BANISH_ENABLED', False)
-        self.DEBUG = getattr(settings, 'BANISH_DEBUG', False)
-        self.ABUSE_THRESHOLD = getattr(settings, 'BANISH_ABUSE_THRESHOLD', 75)
-        self.USE_HTTP_X_FORWARDED_FOR = getattr(settings, 'BANISH_USE_HTTP_X_FORWARDED_FOR', False)
-        self.BANISH_EMPTY_UA = getattr(settings, 'BANISH_EMPTY_UA', True)
-        self.BANISH_MESSAGE = getattr(settings, 'BANISH_MESSAGE', 'You are banned.')
-
         if not self.ENABLED:
             raise MiddlewareNotUsed(
-                "django-banish is not enabled via settings.py")
+                "django-banish is not enabled via settings.py"
+            )
 
-        if self.DEBUG:
-            print >> sys.stderr, "[django-banish] status = enabled"
+        self.get_response = get_response
+
+        self.ABUSE_THRESHOLD = getattr(settings, 'BANISH_ABUSE_THRESHOLD', 75)
+        self.USE_HTTP_X_FORWARDED_FOR = getattr(
+            settings, 'BANISH_USE_HTTP_X_FORWARDED_FOR', True
+        )
+        self.PROTECTED_PATH = getattr(
+            settings, 'BANISH_PROTECTED_PATH', ['/admin/login/'],
+        )
+        self.BANISH_MESSAGE = getattr(
+            settings, 'BANISH_MESSAGE', 'You are banned.'
+        )
+
+        # Empty user agent is banned by default
+        self.BANNED_AGENTS = [None]
 
         # Prefix All keys in cache to avoid key collisions
         self.BANISH_PREFIX = 'DJANGO_BANISH:'
         self.ABUSE_PREFIX = 'DJANGO_BANISH_ABUSE:'
         self.WHITELIST_PREFIX = 'DJANGO_BANISH_WHITELIST:'
 
-        self.BANNED_AGENTS = []
-
-        if self.BANISH_EMPTY_UA:
-            self.BANNED_AGENTS.append(None)
-
         # Populate various 'banish' buckets
-        for ban in Banishment.objects.all():
-            if self.DEBUG:
-                print >> sys.stderr, "IP BANISHMENT: ", ban.type
+        for access in Banishment.objects.all():
+            if access.kind == 'ip-address':
+                cache_key = self.BANISH_PREFIX + access.condition
+                cache.set(cache_key, 1, 3600 * access.count)
+            if access.kind == 'user-agent':
+                self.BANNED_AGENTS.append(access.condition)
+            if access.kind == 'ip-address-whitelist':
+                cache_key = self.WHITELIST_PREFIX + access.condition
+                cache.set(cache_key, 1, 3600 * 12)
 
-            if ban.type == 'ip-address':
-                cache_key = self.BANISH_PREFIX + ban.condition
-                cache.set(cache_key, "1")
-
-            if ban.type == 'user-agent':
-                self.BANNED_AGENTS.append(ban.condition)
- 
-        for whitelist in Whitelist.objects.all():
-            if whitelist.type == 'ip-address-whitelist':
-                cache_key = self.WHITELIST_PREFIX + whitelist.condition
-                cache.set(cache_key, "1")
-
-    def _get_ip(self, request):
-        ip = request.META['REMOTE_ADDR']
-        if self.USE_HTTP_X_FORWARDED_FOR or not ip or ip == '127.0.0.1':
-            ip = request.META.get('HTTP_X_FORWARDED_FOR', ip).split(',')[0].strip()
-        return ip
-
-    def process_request(self, request):
+    def __call__(self, request):
         ip = self._get_ip(request)
-
-        user_agent = request.META.get('HTTP_USER_AGENT', None)
-
-        if self.DEBUG:
-            print >> sys.stderr, "GOT IP FROM Request: %s and User Agent %s" % (ip, user_agent)
+        path = request.META["PATH_INFO"]
+        user_agent = request.META['HTTP_USER_AGENT']
 
         # Check whitelist first, if not allowed, then check ban conditions
-        if self.is_whitelisted(ip):
-          return None
-        elif self.is_banned(ip) or self.monitor_abuse(ip) or user_agent in self.BANNED_AGENTS:
-            return self.http_response_forbidden(self.BANISH_MESSAGE, content_type="text/html")
+        if (path not in self.PROTECTED_PATH) or self.is_whitelisted(ip):
+            return self.get_response(request)
+        elif self.is_banned(ip) or self.watch_abuse(ip) or \
+            (user_agent in self.BANNED_AGENTS):
+            return HttpResponseForbidden(
+                self.BANISH_MESSAGE, content_type="text/html"
+            )
+        return self.get_response(request)
 
-    def http_response_forbidden(self, message, content_type):
-        if django.VERSION[:2] > (1,3):
-            kwargs = {'content_type': content_type}
-        else:
-            kwargs = {'mimetype': content_type}
-        return HttpResponseForbidden(message, **kwargs)
+    def _get_ip(self, request):
+        if self.USE_HTTP_X_FORWARDED_FOR:
+            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                return x_forwarded_for.partition(',')[0].strip()
+        return request.META['REMOTE_ADDR']
 
     def is_banned(self, ip):
         # If a key BANISH MC key exists we know the user is banned.
-        is_banned = cache.get(self.BANISH_PREFIX + ip)
-        if self.DEBUG and is_banned:
-            print >> sys.stderr, "BANISH BANNED IP: ", self.BANISH_PREFIX + ip
-        return is_banned
+        return cache.get(self.BANISH_PREFIX + ip)
 
     def is_whitelisted(self, ip):
         # If a whitelist key exists, return True to allow the request through
-        is_whitelisted = cache.get(self.WHITELIST_PREFIX + ip)
-        if self.DEBUG and is_whitelisted:
-            print >> sys.stderr, "BANISH WHITELISTED IP: ", self.WHITELIST_PREFIX + ip
-        return is_whitelisted
+        return cache.get(self.WHITELIST_PREFIX + ip)
 
-    def monitor_abuse(self, ip):
-        """
-        Track the number of hits per second for a given IP.
-        If the count is over ABUSE_THRESHOLD banish user
-        """
-        cache_key = self.ABUSE_PREFIX + ip
-        abuse_count = cache.get(cache_key)
-        if self.DEBUG:
-            print >> sys.stderr, "BANISH ABUSE COUNT: ", abuse_count
-            print >> sys.stderr, "BANISH CACHE KEY: ", cache_key
-
+    def watch_abuse(self, ip):
         over_abuse_limit = False
 
-        if not abuse_count:
+        cache_key = self.ABUSE_PREFIX + ip
+        abuse_count = cache.get(cache_key)
+        if abuse_count is None:
+            # time scale of statistics is 60 seconds
             cache.set(cache_key, 1, 60)
         else:
-            if abuse_count >= self.ABUSE_THRESHOLD:
+            if abuse_count > self.ABUSE_THRESHOLD:
                 over_abuse_limit = True
-                # Store IP Abuse in memcache and database
-                ban = Banishment(
-                    ban_reason="IP Abuse limit exceeded",
-                    type="ip-address",
-                    condition=ip,
+                ban, created = Banishment.objects.get_or_create(
+                    kind="ip-address", condition=ip
                 )
-                ban.save()
-                cache.set(self.BANISH_PREFIX + ip, "1")
+                if not created:
+                    ban.count += 1
+                    ban.save(update_fields=['count'])
+                # No need to update cache here, `post_save` signal will trigger it.
+                logging.info("[BANISH] banned IP: %s", ip)
+                return over_abuse_limit
+            try:
+                cache.incr(cache_key)
+            except ValueError: # may cause by expiration of cache within 60 seconds
+                pass
 
-            cache.incr(cache_key)
         return over_abuse_limit
+
