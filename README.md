@@ -28,10 +28,13 @@ Requirements:
 
 Get the source:
 
-Browse the source on GitHub: <http://github.com/yourabi/django-banish>
+Browse the source on GitHub: <https://github.com/davidchern/django-banish>
 
 Clone with Git:
-    $ git clone git://github.com/yourabi/django-banish
+
+```shell
+$ git clone git://github.com/davidchern/django-banish
+```
 
 ## Setup
 
