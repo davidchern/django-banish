@@ -105,7 +105,6 @@ class BanishMiddleware(object):
             cache.set(cache_key, 1, 60)
         else:
             if abuse_count > self.ABUSE_THRESHOLD:
-                over_abuse_limit = True
                 ban, created = Banishment.objects.get_or_create(
                     kind="ip-address", condition=ip
                 )
@@ -113,11 +112,11 @@ class BanishMiddleware(object):
                     ban.count += 1
                     ban.save(update_fields=['count'])
                 # No need to update cache here, `post_save` signal will trigger it.
-                logging.info("[BANISH] banned IP: %s", ip)
+                logging.info("[BANISH] banned IP: %s, count", ip, ban.count)
                 return True
             try:
                 cache.incr(cache_key)
-            except ValueError: # may cause by expiration of cache within 60 seconds
+            except ValueError: # may cause by expiration of cache beyond 60 seconds
                 pass
 
         return False
