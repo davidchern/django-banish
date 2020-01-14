@@ -98,8 +98,6 @@ class BanishMiddleware(object):
         return cache.get(self.WHITELIST_PREFIX + ip)
 
     def watch_abuse(self, ip):
-        over_abuse_limit = False
-
         cache_key = self.ABUSE_PREFIX + ip
         abuse_count = cache.get(cache_key)
         if abuse_count is None:
@@ -116,11 +114,10 @@ class BanishMiddleware(object):
                     ban.save(update_fields=['count'])
                 # No need to update cache here, `post_save` signal will trigger it.
                 logging.info("[BANISH] banned IP: %s", ip)
-                return over_abuse_limit
+                return True
             try:
                 cache.incr(cache_key)
             except ValueError: # may cause by expiration of cache within 60 seconds
                 pass
 
-        return over_abuse_limit
-
+        return False
