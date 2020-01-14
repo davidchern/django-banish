@@ -4,7 +4,9 @@
 
 This projects is simple and fast among all similar apps for Django. I like it but find it not compatible to Django 2.2 and Python 3.x.
 
-So this fork had made some updates to improve its compatibity to latest version of Django, and to optimize its performance as far as possible, as well as some features added. It now can run on Python 3.x and Django 2.x.
+So this fork has made some updates to improve its compatibity to latest version of Django, and to optimize its performance as far as possible, as well as a few features added.
+
+It now can run on Python 3.x and Django 2.x.
 
 ---
 
