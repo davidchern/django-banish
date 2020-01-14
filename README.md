@@ -14,8 +14,6 @@ Django-banish stores all 'banishments' in memory to avoid database lookups on ev
 
 django-banish was previously called django-ipban and hosted on google-code. That code should be ignored - In 2010 it was dusted off and given a new life at github.
 
-
-
 ## Installation
 
 Requirements:
@@ -48,15 +46,17 @@ In your django project settings.py you must set the following options:
 
     3) Add BANISH_ENABLED = True to enable Django-Banish (handy if you lock yourself out, you can just set this to False)
     
-    4) ADD BANISH_EMPTY_UA = True|False to specify wether requests without a USER_AGENT header will be banned.
+    4) Add BANISH_PROTECTED_PATH = ['/admin/login/', '/user/login/'] for the paths to be protected.
+    
+    5) Add BANISH_USE_HTTP_X_FORWARDED_FOR = True to enable using IP address behind proxies.
 
-    5) Optionally set BANISH_ABUSE_THRESHOLD (default is 75) to the threshold of requests per minute
+    6) Optionally set BANISH_ABUSE_THRESHOLD (default is 75) to the threshold of requests per minute.
 
-    6) Optionally set BANISH_MESSAGE (default is "You are banned.") to change default message for banned user.
+    7) Optionally set BANISH_MESSAGE (default is "You are banned.") to change default message for banned user.
 
 ## Issues
 
-Find a bug? Want a feature? Submit an [issue here](http://github.com/yourabi/django-banish/issues). Patches welcome!
+Find a bug? Want a feature? Submit an [issue here](https://github.com/davidchern/django-banish/issues). Patches welcome!
 
 ## License
 
@@ -66,5 +66,8 @@ django-banish is released under the Apache Software License, Version 2.0
 ## Authors
 
  * [Yousef Ourabi][1]
+ 
+ * [David Chern][2]
 
  [1]: http://github.com/yourabi
+ [2]: http://github.com/davidchern
