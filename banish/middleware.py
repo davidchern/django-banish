@@ -72,11 +72,9 @@ class BanishMiddleware(object):
         path = request.META["PATH_INFO"]
         user_agent = request.META['HTTP_USER_AGENT']
 
-        # Check whitelist first, if not allowed, then check ban conditions
-        if (path not in self.PROTECTED_PATH) or self.is_whitelisted(ip):
+        if (path not in self.PROTECTED_PATH):
             return self.get_response(request)
-        elif self.is_banned(ip) or self.watch_abuse(ip) or \
-            (user_agent in self.BANNED_AGENTS):
+        elif self.watch_abuse(ip) or (user_agent in self.BANNED_AGENTS):
             return HttpResponseForbidden(
                 self.BANISH_MESSAGE, content_type="text/html"
             )
@@ -89,34 +87,34 @@ class BanishMiddleware(object):
                 return x_forwarded_for.partition(',')[0].strip()
         return request.META['REMOTE_ADDR']
 
-    def is_banned(self, ip):
-        # If a key BANISH MC key exists we know the user is banned.
-        return cache.get(self.BANISH_PREFIX + ip)
-
-    def is_whitelisted(self, ip):
-        # If a whitelist key exists, return True to allow the request through
-        return cache.get(self.WHITELIST_PREFIX + ip)
-
     def watch_abuse(self, ip):
+        # If a whitelist key exists, return True to allow the request through
+        if cache.get(self.WHITELIST_PREFIX + ip):
+            return False
+
+        # If a key BANISH MC key exists we know the user is banned.
+        if cache.get(self.BANISH_PREFIX + ip):
+            return True
+        
         cache_key = self.ABUSE_PREFIX + ip
         abuse_count = cache.get(cache_key)
         if abuse_count is None:
             # time scale of statistics is 60 seconds
             cache.set(cache_key, 1, 60)
+            return False
+        elif abuse_count > self.ABUSE_THRESHOLD:
+            ban, created = Banishment.objects.get_or_create(
+                kind="ip-address", condition=ip
+            )
+            if not created:
+                ban.count += 1
+                ban.save(update_fields=['count'])
+            # No need to update cache here, `post_save` signal will trigger it.
+            logging.info("[BANISH] banned IP: %s, count: %i", ip, ban.count)
+            return True
         else:
-            if abuse_count > self.ABUSE_THRESHOLD:
-                ban, created = Banishment.objects.get_or_create(
-                    kind="ip-address", condition=ip
-                )
-                if not created:
-                    ban.count += 1
-                    ban.save(update_fields=['count'])
-                # No need to update cache here, `post_save` signal will trigger it.
-                logging.info("[BANISH] banned IP: %s, count", ip, ban.count)
-                return True
             try:
                 cache.incr(cache_key)
             except ValueError: # may cause by expiration of cache beyond 60 seconds
                 pass
-
-        return False
+            return False
